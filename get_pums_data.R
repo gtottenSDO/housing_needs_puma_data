@@ -28,7 +28,7 @@ if (
   any(str_detect(local_files, ipums_ddi)) &
     any(str_detect(local_files, ipums_data))
 ) {
-  acs_ddi <- read_ipums_ddi(file_loc)
+  acs_ddi <- read_ipums_ddi(paste0(ipums_dir, ipums_ddi))
   acs_00_23 <- acs_ddi |>
     read_ipums_micro_list()
 } else {
@@ -116,7 +116,9 @@ xwalk <- excel_sheets("data/puma_xwalks.xlsx") |>
   set_names() |>
   map(read_excel, path = "data/puma_xwalks.xlsx")
 
-xwalk_puma <- xwalk$xwalk_20_region |>
+xwalk_puma <- xwalk$xwalk10_20 |>
+  select(GEOID20, PUMA10, GEOID10)
+xwalk$xwalk_20_region |>
   left_join(
     xwalk$xwalk10_20 |>
       select(GEOID20, PUMA10, GEOID10)
@@ -209,45 +211,3 @@ vacancy_df <- year_vec |>
 
 
 write_excel_csv(vacancy_df, "acs_vacancy_region.csv")
-
-# calculate occupied
-acs_occupancy <- acs_hh_srvy |>
-  group_by(OWNERSHP, YEAR) |>
-  survey_count(OWNERSHP, name = "occ") |>
-  mutate(
-    occ_moe = occ_se * 1.645,
-    tenure = case_when(
-      OWNERSHP == 1 ~ "own",
-      OWNERSHP == 2 ~ "rent"
-    )
-  ) |>
-  filter(!is.na(tenure)) |>
-  ungroup()
-
-# calculate total occupied and total vacant
-acs_combined_ov <- acs_vacancy |>
-  select(YEAR, tenure, vac, vac_moe) |>
-  left_join(
-    acs_occupancy |>
-      select(YEAR, tenure, occ, occ_moe),
-    by = c("YEAR", "tenure")
-  ) %>% # old style pipe needs to be used to pipe . into bind_rows
-  bind_rows(
-    summarize(
-      .,
-      tenure = "total",
-      across(c(vac:occ_moe), sum),
-      .by = YEAR
-    )
-  ) |>
-  mutate(
-    total = vac + occ,
-    vac_rate = vac / total
-  ) |>
-  group_by(tenure) |>
-  mutate(avg_vac_rate = mean(vac_rate)) |>
-  ungroup() |>
-  mutate(
-    diff_from_avg = avg_vac_rate - vac_rate,
-    shortfall = diff_from_avg * total
-  )
