@@ -111,6 +111,19 @@ acs_var_tbl <- acs_info |>
   # move GQ to end
   relocate(starts_with("GQ"), .after = last_col())
 
+# get list of pumas by year for creating region crosswalk
+acs_00_23$HOUSEHOLD |> 
+  mutate(
+    PUMA_YEAR = case_when(
+      YEAR >= 2022 ~ "PUMA20",
+      YEAR >= 2012 ~ "PUMA10",
+      YEAR >= 2005 ~ "PUMA00"
+    )
+  ) |> 
+  distinct(YEAR, PUMA, PUMA_YEAR) |>
+  arrange(YEAR, PUMA, PUMA_YEAR) |>
+  write_excel_csv("acs_pumas_by_year.csv")
+
 # load in pums_region_xwalk
 xwalk <- excel_sheets("data/puma_xwalks.xlsx") |>
   set_names() |>
