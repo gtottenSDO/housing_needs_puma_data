@@ -12,7 +12,7 @@ acs_samples <- get_sample_info("usa") |>
 
 drive_id <- as_id("10PZfhFsAZ-dl_w7bmohXdWUbJcxpRPlG")
 
-ipums_id <- "00101"
+ipums_id <- "00102"
 ipums_dir <- "data/ipums_raw/"
 ipums_ddi <- paste0("usa_", ipums_id, ".xml")
 ipums_data <- paste0("usa_", ipums_id, ".dat.gz")
@@ -29,7 +29,7 @@ if (
     any(str_detect(local_files, ipums_data))
 ) {
   acs_ddi <- read_ipums_ddi(paste0(ipums_dir, ipums_ddi))
-  acs_00_23 <- acs_ddi |>
+  acs_data <- acs_ddi |>
     read_ipums_micro_list()
 } else {
   drive_files <- drive_ls(path = drive_id)
@@ -46,7 +46,7 @@ if (
         }
       )
   } else {
-    acs_00_23 <- define_extract_micro(
+    acs_data <- define_extract_micro(
       collection = "usa",
       description = "ACS 1 year samples in Colorado of vacancy variables",
       samples = acs_samples,
@@ -67,7 +67,9 @@ if (
       submit_extract() |>
       wait_for_extract() |>
       download_extract(download_dir = ipums_dir) |>
-      read_ipums_micro()
+      read_ipums_micro_list()
+
+    acs_ddi <- read_ipums_ddi(paste0(ipums_dir, ipums_ddi))
 
     list.files(
       ipums_dir,
@@ -111,26 +113,13 @@ acs_var_tbl <- acs_info |>
   # move GQ to end
   relocate(starts_with("GQ"), .after = last_col())
 
-# get list of pumas by year for creating region crosswalk
-acs_00_23$HOUSEHOLD |> 
-  mutate(
-    PUMA_YEAR = case_when(
-      YEAR >= 2022 ~ "PUMA20",
-      YEAR >= 2012 ~ "PUMA10",
-      YEAR >= 2005 ~ "PUMA00"
-    )
-  ) |> 
-  distinct(YEAR, PUMA, PUMA_YEAR) |>
-  arrange(YEAR, PUMA, PUMA_YEAR) |>
-  write_excel_csv("acs_pumas_by_year.csv")
 
 # load in pums_region_xwalk
 xwalk_puma <- read_csv("data/xwalk_puma_region.csv", col_types = "ccc")
 
 
-
 # create survey design object
-acs_hh_data <- acs_00_23$HOUSEHOLD |>
+acs_hh_data <- acs_data$HOUSEHOLD |>
   filter(YEAR >= 2005, GQ %in% c("0", "1", "2", "5")) |>
   select(
     YEAR,
@@ -159,7 +148,9 @@ acs_hh_data <- acs_00_23$HOUSEHOLD |>
     VACANCY = if_else(VACANCY == "N/A", "Occupied", VACANCY)
   ) |>
   left_join(
-    xwalk_puma, by = c("PUMA", "PUMA_YEAR"), relationship = "many-to-one"
+    xwalk_puma,
+    by = c("PUMA", "PUMA_YEAR"),
+    relationship = "many-to-one"
   )
 
 # create function for generating survey design object for a given year and processing it
@@ -184,20 +175,19 @@ process_vacancy <- function(year) {
 
   return(acs_vacancy)
 }
-vacancy_23 <- process_vacancy(2023)
+# vacancy_23 <- process_vacancy(2023)
 
-year_vec <- c(2005:2023)
+year_vec <- c(2005:2024)
 
 vacancy_df <- year_vec |>
   map(process_vacancy) |>
   set_names(year_vec) |>
   list_rbind(names_to = "YEAR")
 
-xwalk_puma |> 
-  filter(REGION == "4", YEAR) |> 
-  distinct(PUMA_YEAR, PUMA) |> 
+xwalk_puma |>
+  filter(REGION == "4", YEAR) |>
+  distinct(PUMA_YEAR, PUMA) |>
   print(n = Inf)
-
 
 
 write_excel_csv(vacancy_df, "acs_vacancy_region.csv")
