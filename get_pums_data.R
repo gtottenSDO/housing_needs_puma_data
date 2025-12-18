@@ -125,42 +125,8 @@ acs_00_23$HOUSEHOLD |>
   write_excel_csv("acs_pumas_by_year.csv")
 
 # load in pums_region_xwalk
-xwalk <- excel_sheets("data/puma_xwalks.xlsx") |>
-  set_names() |>
-  map(read_excel, path = "data/puma_xwalks.xlsx")
+xwalk_puma <- read_csv("data/xwalk_puma_region.csv", col_types = "ccc")
 
-xwalk_puma <- xwalk$xwalk10_20 |>
-  select(GEOID20, PUMA10, GEOID10)
-xwalk$xwalk_20_region |>
-  left_join(
-    xwalk$xwalk10_20 |>
-      select(GEOID20, PUMA10, GEOID10)
-  ) |>
-  left_join(
-    xwalk$xwalk_00_10 |>
-      select(GEOID10, PUMA00)
-  ) |>
-  select(Region, PUMA20, PUMA10, PUMA00) |>
-  pivot_longer(
-    cols = starts_with("PUMA"),
-    names_to = "PUMA_year",
-    values_to = "PUMA"
-  ) |>
-  distinct() |>
-  left_join(
-    tibble(YEAR = c(2005:2032)) |>
-      mutate(
-        PUMA_year = case_when(
-          YEAR >= 2022 ~ "PUMA20",
-          YEAR >= 2012 ~ "PUMA10",
-          YEAR >= 2005 ~ "PUMA00"
-        )
-      )
-  ) |>
-  select(YEAR, PUMA, REGION = Region) |>
-  mutate(
-    PUMA = as.character(as.integer(PUMA))
-  )
 
 
 # create survey design object
@@ -179,6 +145,11 @@ acs_hh_data <- acs_00_23$HOUSEHOLD |>
   mutate(
     YEAR = as.integer(YEAR),
     PUMA = as.character(PUMA),
+    PUMA_YEAR = case_when(
+      YEAR >= 2022 ~ "PUMA20",
+      YEAR >= 2012 ~ "PUMA10",
+      YEAR >= 2005 ~ "PUMA00"
+    ),
     across(c(GQ:VACANCY), as_factor),
     across(c(HHWT, matches("REPWT[0-9]+")), as.integer)
   ) |>
@@ -188,7 +159,7 @@ acs_hh_data <- acs_00_23$HOUSEHOLD |>
     VACANCY = if_else(VACANCY == "N/A", "Occupied", VACANCY)
   ) |>
   left_join(
-    xwalk_puma
+    xwalk_puma, by = c("PUMA", "PUMA_YEAR"), relationship = "many-to-one"
   )
 
 # create function for generating survey design object for a given year and processing it
@@ -221,6 +192,12 @@ vacancy_df <- year_vec |>
   map(process_vacancy) |>
   set_names(year_vec) |>
   list_rbind(names_to = "YEAR")
+
+xwalk_puma |> 
+  filter(REGION == "4", YEAR) |> 
+  distinct(PUMA_YEAR, PUMA) |> 
+  print(n = Inf)
+
 
 
 write_excel_csv(vacancy_df, "acs_vacancy_region.csv")
